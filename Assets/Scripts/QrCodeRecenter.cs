@@ -1,14 +1,17 @@
 using Unity.Collections;
+using System.Collections;
 using System.Collections.Generic;
 using Unity.XR.CoreUtils;
 using UnityEngine;
 using UnityEngine.XR.ARFoundation;
 using UnityEngine.XR.ARSubsystems;
 using ZXing;
+using UnityEngine.UI;
+using TMPro;
+
 
 public class QrCodeRecenter : MonoBehaviour
 {
-
     [SerializeField]
     private ARSession session;
     [SerializeField]
@@ -19,16 +22,10 @@ public class QrCodeRecenter : MonoBehaviour
     private List<Target> navigationTargetObjects = new List<Target>();
 
     private Texture2D cameraImageTexture;
-    private IBarcodeReader reader = new BarcodeReader(); // create a barcode reader instance
+    private IBarcodeReader reader = new BarcodeReader(); // Create a barcode reader instance
+    private bool isScanningEnabled = false; // Controls whether scanning is active
 
-    private void Update()
-    {
-        if (Input.GetKeyDown(KeyCode.Space))
-        {
-            SetQrCodeRecenterTarget("Room2");
-        }
-    }
-
+public TMP_Text scanningMessageText;
     private void OnEnable()
     {
         cameraManager.frameReceived += OnCameraFrameReceived;
@@ -39,8 +36,35 @@ public class QrCodeRecenter : MonoBehaviour
         cameraManager.frameReceived -= OnCameraFrameReceived;
     }
 
+    // Method to toggle QR code scanning
+    public void ToggleScanning()
+    {
+        isScanningEnabled = !isScanningEnabled;
+        if (isScanningEnabled)
+        {
+            Debug.Log("QR Scanning Enabled");
+            StartCoroutine(ShowMessage("Scanning Activated", 2));
+
+        }
+        else
+        {
+            Debug.Log("QR Scanning Disabled");
+            StartCoroutine(ShowMessage("Scanning Deactivated", 2));
+        }
+    }
+    IEnumerator ShowMessage(string message, float delay)
+    {
+        scanningMessageText.text = message; // Set the message text
+        scanningMessageText.gameObject.SetActive(true); // Make the text element visible
+
+        yield return new WaitForSeconds(delay); // Wait for the specified delay
+
+        scanningMessageText.gameObject.SetActive(false); // Hide the text element
+    }
+
     private void OnCameraFrameReceived(ARCameraFrameEventArgs eventArgs)
     {
+        if (!isScanningEnabled) return; // Early exit if scanning is not enabled
 
         if (!cameraManager.TryAcquireLatestCpuImage(out XRCpuImage image))
         {
@@ -49,36 +73,21 @@ public class QrCodeRecenter : MonoBehaviour
 
         var conversionParams = new XRCpuImage.ConversionParams
         {
-            // Get the entire image.
+            // Get the entire image
             inputRect = new RectInt(0, 0, image.width, image.height),
-
-            // Downsample by 2.
+            // Downsample by 2
             outputDimensions = new Vector2Int(image.width / 2, image.height / 2),
-
-            // Choose RGBA format.
+            // Choose RGBA format
             outputFormat = TextureFormat.RGBA32,
-
-            // Flip across the vertical axis (mirror image).
+            // Flip across the vertical axis (mirror image)
             transformation = XRCpuImage.Transformation.MirrorY
         };
 
-        // See how many bytes you need to store the final image.
         int size = image.GetConvertedDataSize(conversionParams);
-
-        // Allocate a buffer to store the image.
         var buffer = new NativeArray<byte>(size, Allocator.Temp);
-
-        // Extract the image data
         image.Convert(conversionParams, buffer);
-
-        // The image was converted to RGBA32 format and written into the provided buffer
-        // so you can dispose of the XRCpuImage. You must do this or it will leak resources.
         image.Dispose();
 
-        // At this point, you can process the image, pass it to a computer vision algorithm, etc.
-        // In this example, you apply it to a texture to visualize it.
-
-        // You've got the data; let's put it into a texture so you can visualize it.
         cameraImageTexture = new Texture2D(
             conversionParams.outputDimensions.x,
             conversionParams.outputDimensions.y,
@@ -87,14 +96,9 @@ public class QrCodeRecenter : MonoBehaviour
 
         cameraImageTexture.LoadRawTextureData(buffer);
         cameraImageTexture.Apply();
-
-        // Done with your temporary data, so you can dispose it.
         buffer.Dispose();
 
-        // Detect and decode the barcode inside the bitmap
         var result = reader.Decode(cameraImageTexture.GetPixels32(), cameraImageTexture.width, cameraImageTexture.height);
-
-        // Do something with the result
         if (result != null)
         {
             SetQrCodeRecenterTarget(result.Text);
